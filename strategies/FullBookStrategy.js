@@ -22,7 +22,7 @@ export class FullBookStrategy {
         console.log("\n[2/2] Generazione contenuto capitoli...");
         for (const chapter of chapters) {
             process.stdout.write(`      Capitolo ${chapter.number}: ${chapter.title}... `);
-            const content = await this._generateChapter(topic, chapter);
+            const content = await this._generateChapter(topic, chapter, chapters);
             const filename = `${String(chapter.number).padStart(2, "0")}-${slugify(chapter.title)}.md`;
             writeFile(path.join(outputDir, filename), content);
             process.stdout.write(`salvato (${filename})\n`);
@@ -32,15 +32,33 @@ export class FullBookStrategy {
     }
 
     async _generateOutline(topic) {
-        const prompt = `Genera la struttura dei capitoli per un libro completo e accademico sull'argomento: "${topic}".
+        const prompt = `<persona>
+Sei un autore accademico di fama mondiale e un architetto dell'informazione esperto nella progettazione didattica avanzata.
+</persona>
 
-Rispondi ESCLUSIVAMENTE con un array JSON valido (nessun testo prima o dopo), nel seguente formato:
+<task>
+Il tuo compito è generare la struttura dei capitoli per un libro completo, accademico e autorevole sull'argomento: "${topic}".
+La struttura deve seguire una progressione logica rigorosa: dalle fondamenta teoriche alle applicazioni avanzate, analisi critica e conclusioni.
+</task>
+
+<requirements>
+- Numero di capitoli: tra 15 e 20.
+- Lingua: Italiano.
+- Ogni capitolo deve avere un titolo e una descrizione dettagliata di ciò che verrà trattato.
+- Assicurati che non ci siano sovrapposizioni inutili tra i capitoli.
+</requirements>
+
+<output_format>
+Rispondi ESCLUSIVAMENTE con un array JSON valido (nessun markdown, nessun testo prima o dopo), nel seguente formato:
 [
-  {"number": 1, "title": "Titolo Capitolo", "description": "Descrizione del contenuto del capitolo"},
+  {
+    "number": 1,
+    "title": "Titolo del Capitolo",
+    "description": "Descrizione esaustiva dei contenuti, obiettivi didattici e punti chiave che verranno trattati in questo capitolo."
+  },
   ...
 ]
-
-Genera tra 15 e 20 capitoli ben strutturati, progressivi e coerenti con l'argomento e tra di loro.`;
+</output_format>`;
 
         const raw = await callLLM(prompt, BOOK_SYSTEM_PROMPT);
 
@@ -51,19 +69,34 @@ Genera tra 15 e 20 capitoli ben strutturati, progressivi e coerenti con l'argome
         return JSON.parse(jsonMatch[0]);
     }
 
-    async _generateChapter(topic, chapter) {
-        const prompt = `Scrivi il contenuto completo del Capitolo ${chapter.number}: "${chapter.title}" per un libro accademico su "${topic}".
+    async _generateChapter(topic, chapter, outline) {
+        const prompt = `<persona>
+Sei un eminente professore universitario e autore di testi accademici. Il tuo stile è rigoroso, analitico, denso di contenuti ma fluido nella lettura.
+</persona>
 
+<context>
+Argomento del libro: "${topic}"
+Capitolo attuale: Capitolo ${chapter.number} - "${chapter.title}"
 Descrizione del capitolo: ${chapter.description}
 
-Linea Guida:
-Sei un autore accademico esperto e un professore universitario. Il tuo compito è redigere sezioni di un libro di testo avanzato. Mantieni costantemente un tono di voce rigoroso, analitico e autorevole, ma al contempo accessibile, calibrato per un pubblico di lettori e studenti universitari.
-Struttura e Formato
-Formattazione: Struttura tutto il testo rigorosamente in formato Markdown. Utilizza l'intestazione # (H1) per il titolo del capitolo, ## (H2) per i macro-argomenti e ### (H3) per le sotto-sezioni.
-Conclusione: Al termine del testo, includi sempre una sezione denominata ## Riepilogo, in cui fornirai un elenco puntato che sintetizza in modo chiaro i concetti chiave appena trattati.
-Contenuto e Metodologia
-Estensione e Dettaglio: Sviluppa l'argomento in modo estremamente esaustivo, esplorando a fondo ogni singola sotto-sezione senza tralasciare sfumature importanti.
-Supporto Pratico: Arricchisci sistematicamente le spiegazioni teoriche integrando esempi concreti, fornendo analogie e analizzando casi studio reali e verificabili per facilitare l'apprendimento e ancorare la teoria alla pratica.`;
+<full_outline>
+Ecco la struttura completa del libro per garantirti la massima coerenza e evitare ripetizioni con altri capitoli:
+${JSON.stringify(outline, null, 2)}
+</full_outline>
+</context>
+
+<instructions>
+1. **Contenuto**: Scrivi il contenuto completo e dettagliato di questo capitolo. Esplora a fondo ogni concetto menzionato nella descrizione.
+2. **Stile**: Mantieni un tono autorevole. Usa terminologia tecnica appropriata senza essere oscuro.
+3. **Esempi**: Integra costantemente esempi pratici, casi studio o analogie per ancorare la teoria.
+4. **Formattazione**: Usa Markdown.
+    - # Per il titolo del capitolo.
+    - ## Per i paragrafi principali.
+    - ### Per i sotto-paragrafi.
+    - Enfatizza i termini chiave in **grassetto**.
+5. **Riepilogo**: Concludi sempre con una sezione "## Riepilogo" con un elenco puntato dei punti chiave.
+6. **Coerenza**: Non introdurre il libro intero. Concentrati esclusivamente su questo capitolo, sapendo che gli altri argomenti sono trattati altrove come indicato nell'outline.
+</instructions>`;
 
         return await callLLM(prompt, BOOK_SYSTEM_PROMPT);
     }
