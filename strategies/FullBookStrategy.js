@@ -87,7 +87,7 @@ ${JSON.stringify(outline, null, 2)}
 
 <instructions>
 1. **Contenuto**: Scrivi il contenuto completo e dettagliato di questo capitolo. Esplora a fondo ogni concetto menzionato nella descrizione. 
-2. **Lunghezza**: Deve contenere almeno 8000 parole.
+2. **Lunghezza**: Deve contenere almeno 10000 parole.
 3. **Stile**: Mantieni un tono autorevole. Usa terminologia tecnica appropriata senza essere oscuro.
 4. **Esempi**: Integra esempi pratici, casi studio o analogie per approfondire la teoria.
 5. **Formattazione**: Usa Markdown.

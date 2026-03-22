@@ -91,34 +91,63 @@ function buildHtml(title, htmlBody, author) {
 </html>`;
 }
 
+// --- Estrae il contenuto markdown da un file, gestendo wrapper JSON e Markdown ---
+function extractMdContent(raw) {
+    let content = raw.trim();
+
+    // Caso 1: blocco ```json\n...\n``` (risposta LLM che wrappa JSON in markdown)
+    if (content.toLowerCase().startsWith("```json")) {
+        const firstNewline = content.indexOf("\n");
+        if (firstNewline !== -1) {
+            // Trova il ``` di chiusura (cerca dall'inizio del contenuto dopo l'apertura)
+            const inner = content.slice(firstNewline + 1);
+            const closingBacktick = inner.lastIndexOf("\n```");
+            const jsonStr = closingBacktick !== -1 ? inner.slice(0, closingBacktick) : inner;
+            try {
+                const obj = JSON.parse(jsonStr);
+                if (obj && typeof obj.content === "string") return obj.content.trim();
+            } catch (_) { /* non è JSON valido, continua */ }
+        }
+    }
+
+    // Caso 2: il file è JSON puro (senza backtick)
+    if (content.startsWith("{")) {
+        try {
+            const obj = JSON.parse(content);
+            if (obj && typeof obj.content === "string") return obj.content.trim();
+        } catch (_) { /* non è JSON valido, continua */ }
+    }
+
+    // Caso 3: blocco ```markdown ... ``` 
+    if (content.toLowerCase().startsWith("```markdown")) {
+        const firstNewline = content.indexOf("\n");
+        if (firstNewline !== -1) content = content.slice(firstNewline + 1).trim();
+    }
+
+    // Rimuove trailing ``` se presente
+    if (content.endsWith("```")) {
+        const lastNewline = content.lastIndexOf("\n");
+        if (lastNewline !== -1) {
+            const trail = content.slice(lastNewline + 1).trim();
+            if (trail === "```") content = content.slice(0, lastNewline).trim();
+        }
+    }
+
+    return content.trim();
+}
+
 // --- Legge e ordina i file MD di un libro ---
 function getMdFiles(bookDir) {
     return fs.readdirSync(bookDir)
         .filter(f => f.endsWith(".md") && !f.startsWith("_"))
         .sort()
         .map(f => {
-            let content = fs.readFileSync(path.join(bookDir, f), "utf8").trim();
-            // Rimuove eventuali wrapper markdown globali (spesso aggiunti dagli LLM)
-            if (content.toLowerCase().startsWith("```markdown")) {
-                const firstNewline = content.indexOf("\n");
-                if (firstNewline !== -1) {
-                    content = content.slice(firstNewline + 1).trim();
-                }
-            }
-            if (content.endsWith("```")) {
-                const lastNewline = content.lastIndexOf("\n");
-                if (lastNewline !== -1) {
-                    const trail = content.slice(lastNewline + 1).trim();
-                    if (trail === "```") {
-                        content = content.slice(0, lastNewline).trim();
-                    }
-                }
-            }
-            content = content.trim();
+            const raw = fs.readFileSync(path.join(bookDir, f), "utf8");
+            const content = extractMdContent(raw);
             return {
                 name: f,
                 path: path.join(bookDir, f),
-                content: content,
+                content,
             };
         });
 }
@@ -132,22 +161,10 @@ function extractTitle(mdFiles, dirName) {
     return dirName.replace(/-/g, " ").replace(/\b\w/g, l => l.toUpperCase());
 }
 
-// --- Export di un singolo libro ---
-async function exportBook(bookDir, bookSlug, browser) {
-    const mdFiles = getMdFiles(bookDir);
-
-    if (mdFiles.length === 0) {
-        console.log("  Nessun file .md trovato, skip.");
-        return;
-    }
-
-    const title  = extractTitle(mdFiles, bookSlug);
-    const author = "Generato con cli-llm";
-    console.log(`  Titolo:   ${title}`);
-    console.log(`  Capitoli: ${mdFiles.length} file`);
-
+// --- Esegue materialmente l'export (LaTeX e PDF) ---
+async function runExport(mdFiles, title, author, outputBase, targetDir, browser) {
     // --- LaTeX ---
-    const texOutput = path.join(bookDir, `${bookSlug}.tex`);
+    const texOutput = path.join(targetDir, `${outputBase}.tex`);
     try {
         const latex = buildLatexDocument(mdFiles, title, author);
         fs.writeFileSync(texOutput, latex, "utf8");
@@ -157,11 +174,11 @@ async function exportBook(bookDir, bookSlug, browser) {
     }
 
     // --- PDF via puppeteer-core ---
-    const pdfOutput = path.join(bookDir, `${bookSlug}.pdf`);
+    const pdfOutput = path.join(targetDir, `${outputBase}.pdf`);
     try {
-        const combinedMd  = mdFiles.map(f => f.content).join("\n\n---\n\n");
-        const htmlBody     = marked(combinedMd);
-        const fullHtml     = buildHtml(title, htmlBody, author);
+        const combinedMd = mdFiles.map(f => f.content).join("\n\n---\n\n");
+        const htmlBody = marked(combinedMd);
+        const fullHtml = buildHtml(title, htmlBody, author);
 
         const page = await browser.newPage();
         await page.setContent(fullHtml, { waitUntil: "networkidle0" });
@@ -179,11 +196,81 @@ async function exportBook(bookDir, bookSlug, browser) {
     }
 }
 
+// --- Export di un intero libro (directory) ---
+async function exportBook(bookDir, bookSlug, browser) {
+    const mdFiles = getMdFiles(bookDir);
+
+    if (mdFiles.length === 0) {
+        console.log("  Nessun file .md trovato, skip.");
+        return;
+    }
+
+    const title = extractTitle(mdFiles, bookSlug);
+    const author = "Generato con cli-llm";
+    console.log(`  Titolo:   ${title}`);
+    console.log(`  Capitoli: ${mdFiles.length} file`);
+
+    await runExport(mdFiles, title, author, bookSlug, bookDir, browser);
+}
+
 // --- Comando principale ---
 export async function exportCommand(args) {
-    const booksRoot  = path.join(process.cwd(), "books");
+    const booksRoot = path.join(process.cwd(), "books");
     const targetSlug = args[0];
 
+    // Trova browser
+    const executablePath = findBrowser();
+    if (!executablePath) {
+        console.error("\nErrore: Chrome o Edge non trovato.");
+        console.error("Installa Google Chrome o Microsoft Edge per generare i PDF.\n");
+        process.exit(1);
+    }
+
+    // Caso 1: Export di un singolo file specifico
+    if (targetSlug) {
+        let filePath = path.resolve(targetSlug);
+        if (!fs.existsSync(filePath)) {
+            filePath = path.join(booksRoot, targetSlug);
+        }
+
+        if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+            if (!filePath.toLowerCase().endsWith(".md")) {
+                console.error(`\nErrore: Il file deve essere un .md -> ${filePath}\n`);
+                process.exit(1);
+            }
+
+            console.log(`\nExport di un singolo file: ${path.basename(filePath)}...\n`);
+            
+            const browser = await puppeteer.launch({
+                executablePath,
+                headless: true,
+                args: ["--no-sandbox", "--disable-setuid-sandbox"],
+            });
+
+            try {
+                const raw = fs.readFileSync(filePath, "utf8");
+                const content = extractMdContent(raw);
+                const mdFile = {
+                    name: path.basename(filePath),
+                    path: filePath,
+                    content,
+                };
+                const title = extractTitle([mdFile], path.basename(filePath, ".md"));
+                const author = "Generato con cli-llm";
+                const outputBase = path.basename(filePath, ".md");
+                const targetDir = path.dirname(filePath);
+
+                await runExport([mdFile], title, author, outputBase, targetDir, browser);
+            } finally {
+                await browser.close();
+            }
+            
+            console.log("\nExport completato.\n");
+            return;
+        }
+    }
+
+    // Caso 2: Export di directory (comportamento originale)
     if (!fs.existsSync(booksRoot)) {
         console.error(`\nNessuna cartella "books/" trovata in: ${process.cwd()}`);
         console.error(`Genera prima un libro con: llm books "<argomento>"\n`);
@@ -203,17 +290,9 @@ export async function exportCommand(args) {
         ? allSlugs.filter(s => s === targetSlug)
         : allSlugs;
 
-    if (toExport.length === 0) {
+    if (targetSlug && toExport.length === 0) {
         console.error(`\nLibro non trovato: "${targetSlug}"`);
         console.error(`Libri disponibili: ${allSlugs.join(", ")}\n`);
-        process.exit(1);
-    }
-
-    // Trova browser
-    const executablePath = findBrowser();
-    if (!executablePath) {
-        console.error("\nErrore: Chrome o Edge non trovato.");
-        console.error("Installa Google Chrome o Microsoft Edge per generare i PDF.\n");
         process.exit(1);
     }
 
