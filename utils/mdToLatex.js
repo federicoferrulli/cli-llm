@@ -52,6 +52,24 @@ function processInline(text) {
 
 // Converte un singolo file MD in blocchi LaTeX (senza preamble/documento)
 function convertMdBody(mdContent) {
+    // Rimuove eventuali wrapper markdown globali (spesso aggiunti dagli LLM)
+    mdContent = mdContent.trim();
+    if (mdContent.toLowerCase().startsWith("```markdown")) {
+        const firstNewline = mdContent.indexOf("\n");
+        if (firstNewline !== -1) {
+            mdContent = mdContent.slice(firstNewline + 1).trim();
+        }
+    }
+    if (mdContent.endsWith("```")) {
+        const lastNewline = mdContent.lastIndexOf("\n");
+        if (lastNewline !== -1) {
+            const trail = mdContent.slice(lastNewline + 1).trim();
+            if (trail === "```") {
+                mdContent = mdContent.slice(0, lastNewline).trim();
+            }
+        }
+    }
+    
     const lines = mdContent.split("\n");
     let out = "";
 
@@ -80,7 +98,7 @@ function convertMdBody(mdContent) {
     for (const line of lines) {
 
         // --- Blocchi di codice ---
-        if (line.startsWith("```")) {
+        if (line.trim().startsWith("```")) {
             if (!inCodeBlock) {
                 flushParagraph();
                 closeList();
@@ -130,20 +148,22 @@ function convertMdBody(mdContent) {
         }
 
         // --- Lista non ordinata ---
-        if (line.match(/^[-*]\s+(.*)/)) {
+        const ulMatch = line.match(/^\s*[-*]\s+(.*)/);
+        if (ulMatch) {
             flushParagraph();
             closeBlockquote();
             if (!inItemize) { out += "\\begin{itemize}\n"; inItemize = true; }
-            out += `  \\item ${processInline(line.replace(/^[-*]\s+/, ""))}\n`;
+            out += `  \\item ${processInline(ulMatch[1])}\n`;
             continue;
         }
 
         // --- Lista ordinata ---
-        if (line.match(/^\d+\.\s+(.*)/)) {
+        const olMatch = line.match(/^\s*\d+\.\s+(.*)/);
+        if (olMatch) {
             flushParagraph();
             closeBlockquote();
             if (!inEnumerate) { out += "\\begin{enumerate}\n"; inEnumerate = true; }
-            out += `  \\item ${processInline(line.replace(/^\d+\.\s+/, ""))}\n`;
+            out += `  \\item ${processInline(olMatch[1])}\n`;
             continue;
         }
 

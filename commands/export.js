@@ -96,11 +96,31 @@ function getMdFiles(bookDir) {
     return fs.readdirSync(bookDir)
         .filter(f => f.endsWith(".md") && !f.startsWith("_"))
         .sort()
-        .map(f => ({
-            name: f,
-            path: path.join(bookDir, f),
-            content: fs.readFileSync(path.join(bookDir, f), "utf8"),
-        }));
+        .map(f => {
+            let content = fs.readFileSync(path.join(bookDir, f), "utf8").trim();
+            // Rimuove eventuali wrapper markdown globali (spesso aggiunti dagli LLM)
+            if (content.toLowerCase().startsWith("```markdown")) {
+                const firstNewline = content.indexOf("\n");
+                if (firstNewline !== -1) {
+                    content = content.slice(firstNewline + 1).trim();
+                }
+            }
+            if (content.endsWith("```")) {
+                const lastNewline = content.lastIndexOf("\n");
+                if (lastNewline !== -1) {
+                    const trail = content.slice(lastNewline + 1).trim();
+                    if (trail === "```") {
+                        content = content.slice(0, lastNewline).trim();
+                    }
+                }
+            }
+            content = content.trim();
+            return {
+                name: f,
+                path: path.join(bookDir, f),
+                content: content,
+            };
+        });
 }
 
 // --- Estrae titolo dal primo H1 trovato, fallback al nome directory ---

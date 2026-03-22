@@ -1,4 +1,4 @@
-const hostIp = "192.168.1.52";
+const hostIp = "192.168.1.51";
 const apiUrl = `http://${hostIp}:9090/v1/chat/completions`;
 
 const BOOK_SYSTEM_PROMPT = `Sei un grande scrittore di libri e professore universitario con decenni di esperienza nell'insegnamento e nella pubblicazione accademica. Combini rigore scientifico con uno stile narrativo coinvolgente e accessibile a un pubblico colto. Quando ti viene chiesto di restituire JSON, rispondi ESCLUSIVAMENTE con il JSON valido, senza testo aggiuntivo, senza markdown, senza backtick.`;
@@ -7,14 +7,27 @@ const JARVIS_SYSTEM_PROMPT = `Sei Jarvis, un ingegnere del software senior e un 
 
 export { BOOK_SYSTEM_PROMPT, JARVIS_SYSTEM_PROMPT };
 
-export async function callLLM(userPrompt, systemPrompt = JARVIS_SYSTEM_PROMPT) {
+export async function callLLM(userPrompt, systemPrompt = JARVIS_SYSTEM_PROMPT, options = {}) {
+    // Logica dinamica per la temperatura se non specificata
+    let temperature = options.temperature;
+    if (temperature === undefined) {
+        const promptLower = userPrompt.toLowerCase();
+        if (promptLower.includes("json") || promptLower.includes("struttura") || promptLower.includes("<output_format>")) {
+            temperature = 0.1; // Molto basso per output strutturati
+        } else if (promptLower.includes("scrivi") || promptLower.includes("capitolo") || promptLower.includes("racconta")) {
+            temperature = 0.8; // Più alto per scrittura creativa
+        } else {
+            temperature = 0.3; // Default bilanciato
+        }
+    }
+
     const payload = {
-        model: "openai/gpt-oss-20b",
+        model: "google/gemma-3-4b",
         messages: [
             { role: "system", content: systemPrompt },
             { role: "user", content: userPrompt }
         ],
-        temperature: 0.3,
+        temperature: temperature,
         stream: false
     };
 

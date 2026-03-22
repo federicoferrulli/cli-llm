@@ -86,16 +86,17 @@ ${JSON.stringify(outline, null, 2)}
 </context>
 
 <instructions>
-1. **Contenuto**: Scrivi il contenuto completo e dettagliato di questo capitolo. Esplora a fondo ogni concetto menzionato nella descrizione.
-2. **Stile**: Mantieni un tono autorevole. Usa terminologia tecnica appropriata senza essere oscuro.
-3. **Esempi**: Integra costantemente esempi pratici, casi studio o analogie per ancorare la teoria.
-4. **Formattazione**: Usa Markdown.
+1. **Contenuto**: Scrivi il contenuto completo e dettagliato di questo capitolo. Esplora a fondo ogni concetto menzionato nella descrizione. 
+2. **Lunghezza**: Deve contenere almeno 8000 parole.
+3. **Stile**: Mantieni un tono autorevole. Usa terminologia tecnica appropriata senza essere oscuro.
+4. **Esempi**: Integra esempi pratici, casi studio o analogie per approfondire la teoria.
+5. **Formattazione**: Usa Markdown.
     - # Per il titolo del capitolo.
     - ## Per i paragrafi principali.
     - ### Per i sotto-paragrafi.
     - Enfatizza i termini chiave in **grassetto**.
-5. **Riepilogo**: Concludi sempre con una sezione "## Riepilogo" con un elenco puntato dei punti chiave.
-6. **Coerenza**: Non introdurre il libro intero. Concentrati esclusivamente su questo capitolo, sapendo che gli altri argomenti sono trattati altrove come indicato nell'outline.
+6. **Riepilogo**: Concludi sempre con una sezione "## Riepilogo" con un elenco puntato dei punti chiave.
+7. **Coerenza**: Non introdurre il libro intero. Concentrati esclusivamente su questo capitolo, sapendo che gli altri argomenti sono trattati altrove come indicato nell'outline.
 </instructions>`;
 
         return await callLLM(prompt, BOOK_SYSTEM_PROMPT);
