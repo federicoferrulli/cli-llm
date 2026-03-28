@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import 'dotenv/config';
 
 import { booksCommand } from "./commands/books.js";
 import { exportCommand } from "./commands/export.js";

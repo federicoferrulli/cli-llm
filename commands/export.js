@@ -92,44 +92,28 @@ function buildHtml(title, htmlBody, author) {
 }
 
 // --- Estrae il contenuto markdown da un file, gestendo wrapper JSON e Markdown ---
+/**
+ * Estrae il contenuto markdown da un file, gestendo wrapper JSON e blocchi di codice Markdown.
+ * Unifica la logica per gestire file puramente JSON, JSON avvolti in backtick o Markdown avvolto.
+ */
 function extractMdContent(raw) {
     let content = raw.trim();
 
-    // Caso 1: blocco ```json\n...\n``` (risposta LLM che wrappa JSON in markdown)
-    if (content.toLowerCase().startsWith("```json")) {
-        const firstNewline = content.indexOf("\n");
-        if (firstNewline !== -1) {
-            // Trova il ``` di chiusura (cerca dall'inizio del contenuto dopo l'apertura)
-            const inner = content.slice(firstNewline + 1);
-            const closingBacktick = inner.lastIndexOf("\n```");
-            const jsonStr = closingBacktick !== -1 ? inner.slice(0, closingBacktick) : inner;
-            try {
-                const obj = JSON.parse(jsonStr);
-                if (obj && typeof obj.content === "string") return obj.content.trim();
-            } catch (_) { /* non è JSON valido, continua */ }
-        }
+    // 1. Normalizzazione: Rimuoviamo eventuali wrapper di blocchi di codice (```json, ```markdown, etc.)
+    // Se l'intero file è racchiuso in un blocco di codice backtick, estraiamo il contenuto interno.
+    const wrapperMatch = content.match(/^```(?:[a-z]*)\s*([\s\S]*?)\s*```$/i);
+    if (wrapperMatch) {
+        content = wrapperMatch[1].trim();
     }
 
-    // Caso 2: il file è JSON puro (senza backtick)
+    // 2. Estrazione: Controllo se il contenuto (eventualmente appena sballato dai backtick) è un oggetto JSON
     if (content.startsWith("{")) {
         try {
             const obj = JSON.parse(content);
+            // Se l'oggetto ha una proprietà 'content' (formato comune per i capitoli generati), usiamo quella.
             if (obj && typeof obj.content === "string") return obj.content.trim();
-        } catch (_) { /* non è JSON valido, continua */ }
-    }
-
-    // Caso 3: blocco ```markdown ... ``` 
-    if (content.toLowerCase().startsWith("```markdown")) {
-        const firstNewline = content.indexOf("\n");
-        if (firstNewline !== -1) content = content.slice(firstNewline + 1).trim();
-    }
-
-    // Rimuove trailing ``` se presente
-    if (content.endsWith("```")) {
-        const lastNewline = content.lastIndexOf("\n");
-        if (lastNewline !== -1) {
-            const trail = content.slice(lastNewline + 1).trim();
-            if (trail === "```") content = content.slice(0, lastNewline).trim();
+        } catch (_) {
+            // Se non è un JSON valido o non ha la proprietà 'content', lo trattiamo come markdown puro
         }
     }
 

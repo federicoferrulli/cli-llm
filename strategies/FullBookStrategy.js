@@ -12,7 +12,13 @@ export class FullBookStrategy {
 
         // Step 1: genera struttura capitoli
         console.log("[1/2] Generazione struttura capitoli...");
-        const chapters = await this._generateOutline(topic);
+        let chapters = null;
+        try {
+            chapters = await this._generateOutline(topic);
+        } catch (e) {
+            console.error(e);
+            process.exit(1);
+        }
 
         writeFile(path.join(outputDir, "outline.json"), JSON.stringify(chapters, null, 2));
         console.log(`      Struttura generata: ${chapters.length} capitoli`);
