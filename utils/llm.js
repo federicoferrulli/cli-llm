@@ -5,10 +5,19 @@ const JARVIS_SYSTEM_PROMPT = `Sei Jarvis, un ingegnere del software senior e un 
 export { BOOK_SYSTEM_PROMPT, JARVIS_SYSTEM_PROMPT };
 
 export async function callLLM(userPrompt, systemPrompt = JARVIS_SYSTEM_PROMPT, options = {}) {
-    // Rimuoviamo il '/v1' finale dal base URL se presente e aggiungiamo il path nativo
-    let baseUrl = process.env.LLM_BASE_URL || "http://192.168.1.68:1234/v1";
-    baseUrl = baseUrl.replace(/\/v1$/, ""); // Rimuove /v1 se l'utente lo ha messo nel .env
-    const apiUrl = `${baseUrl}/api/v1/chat`;
+    // Utilizziamo lo standard OpenAI-compatibile di LM Studio
+    let baseUrl = process.env.LLM_BASE_URL || "http://192.168.1.56:1234/v1";
+    if (baseUrl.endsWith('/')) {
+        baseUrl = baseUrl.slice(0, -1);
+    }
+    if (!baseUrl.endsWith('/v1')) {
+        baseUrl += '/v1';
+    }
+    const apiUrl = `${baseUrl}/chat/completions`;
+    const model = process.env.LLM_MODEL || "local-model";
+    
+    // Log per debug (rimovibile dopo aver risolto il problema di connessione)
+    console.log(`[LLM DEBUG] Connessione a: ${apiUrl} (Modello: ${model})`);
     
     const maxRetries = 3;
     let attempt = 0;
@@ -26,11 +35,13 @@ export async function callLLM(userPrompt, systemPrompt = JARVIS_SYSTEM_PROMPT, o
         }
     }
 
-    // Payload conforme a LM Studio Native API (v1/chat)
+    // Payload conforme allo standard OpenAI (/v1/chat/completions)
     const payload = {
-        model: process.env.LLM_MODEL || "google/gemma-3-4b",
-        input: userPrompt,
-        system_prompt: systemPrompt,
+        model: process.env.LLM_MODEL || "local-model",
+        messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt }
+        ],
         temperature: temperature,
         stream: true // Abilitiamo lo streaming
     };
@@ -38,7 +49,7 @@ export async function callLLM(userPrompt, systemPrompt = JARVIS_SYSTEM_PROMPT, o
     while (attempt < maxRetries) {
         try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 20 * 60 * 1000); 
+            const timeoutId = setTimeout(() => controller.abort(), 60 * 60 * 1000); // 1 ora
 
             const response = await fetch(apiUrl, {
                 method: "POST",
@@ -57,32 +68,39 @@ export async function callLLM(userPrompt, systemPrompt = JARVIS_SYSTEM_PROMPT, o
                 throw new Error(`Errore HTTP: ${response.status} ${response.statusText} - ${JSON.stringify(errorData)}`);
             }
 
-            // Gestione dello streaming
+            // Gestione dello streaming OpenAI-compatibile
             const reader = response.body.getReader();
-            const decoder = new TextDecoder();
+            const decoder = new TextDecoder("utf-8");
             let fullText = "";
+            let buffer = ""; // Buffer per i chunk parziali
 
             while (true) {
                 const { done, value } = await reader.read();
                 if (done) break;
 
-                const chunk = decoder.decode(value, { stream: true });
-                const lines = chunk.split("\n");
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split("\n");
+                
+                // Conserviamo l'ultima riga se non è completa (non finisce con \n)
+                buffer = lines.pop() || "";
 
                 for (const line of lines) {
-                    if (!line.startsWith("data: ")) continue;
-                    const dataStr = line.replace(/^data: /, "").trim();
+                    const trimmedLine = line.trim();
+                    if (!trimmedLine.startsWith("data: ")) continue;
+                    
+                    const dataStr = trimmedLine.replace(/^data:\s*/, "");
                     if (dataStr === "[DONE]") break;
 
                     try {
                         const json = JSON.parse(dataStr);
-                        const content = json.content || "";
-                        if (content) {
+                        // Parsing formato OpenAI (choices[0].delta.content)
+                        if (json.choices && json.choices.length > 0 && json.choices[0].delta && json.choices[0].delta.content) {
+                            const content = json.choices[0].delta.content;
                             process.stdout.write(content); // Stampa in tempo reale
                             fullText += content;
                         }
                     } catch (e) {
-                        // Ignora frammenti JSON incompleti o non validi nello stream
+                        // Ignora i frammenti JSON non validi momentanei o heartbeat
                     }
                 }
             }
@@ -100,7 +118,7 @@ export async function callLLM(userPrompt, systemPrompt = JARVIS_SYSTEM_PROMPT, o
             const waitTime = attempt * 2000;
 
             if (err.name === 'AbortError') {
-                console.warn(`\n[Retry ${attempt}/${maxRetries}] Timeout raggiunto. Riprovo...`);
+                console.warn(`\n[Retry ${attempt}/${maxRetries}] Timeout raggiunto sulla richiesta. Riprovo...`);
             } else {
                 console.warn(`\n[Retry ${attempt}/${maxRetries}] Errore: ${err.message}. Riprovo...`);
             }
@@ -113,4 +131,3 @@ export async function callLLM(userPrompt, systemPrompt = JARVIS_SYSTEM_PROMPT, o
         }
     }
 }
-
